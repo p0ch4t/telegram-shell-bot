@@ -4,7 +4,7 @@ import time
 from functools import wraps
 
 import delegator
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, constants
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -33,8 +33,7 @@ def validate_settings():
         raise Exception(
             "It a public bot. "
             "Public bot is not safe, dont's use root to run this bot. "
-            "You must add settings `CMD_WHITE_LIST` or "
-            "`ONLY_SHORTCUT_CMD=True` for a public bot"
+            "You must add settings `CMD_WHITE_LIST` or `ONLY_SHORTCUT_CMD=True` for a public bot"
         )
 
 
@@ -59,13 +58,12 @@ def start(update, context):
     reply_markup = InlineKeyboardMarkup(keyboard)
     msg = (
         "Any inputs will be called as a shell command.\r\n"
-        "Any file send to bot will be uploaded to folder `./upload/`.\r\n"
         "Supported commands:\r\n"
         "/script to run scripts in ./scripts directory\r\n"
         "/tasks to show all running tasks\r\n"
-        "/download to download file form server\r\n"
         "/sudo_login to call sudo\r\n"
         "/kill to kill a running task\r\n"
+        "Shortcut:"
     )
     update.message.reply_text(msg, reply_markup=reply_markup)
 
@@ -75,7 +73,7 @@ def error(update, context):
     logger.warning('Update "%s" caused error "%s"', update, context.error)
 
 
-def __is_out_all(cmd: str) -> tuple[str, bool]:
+def __is_out_all(cmd: str) -> (str, bool):
     param = "oa;"
     if cmd.startswith(param):
         return cmd[len(param) :], True
@@ -86,11 +84,7 @@ def __do_exec(cmd, update, context, is_script=False, need_filter_cmd=True):
     def reply_text(msg: str, *args, **kwargs):
         if not msg.strip():  # ignore empty message
             return
-        # python len() is by char, MAX_MESSAGE_LENGTH is bytes
-        max_length = constants.MAX_MESSAGE_LENGTH // 2
-        while msg:
-            message.reply_text(msg[:max_length], *args, **kwargs)
-            msg = msg[max_length:]
+        message.reply_text(msg, *args, **kwargs)
 
     message = update.message or update.callback_query.message
     logger.debug('exec command "%s", is_script "%s"', cmd, is_script)
@@ -165,7 +159,10 @@ def __check_cmd(cmd: str):
 
 
 def __check_cmd_chars(cmd: str):
-    return all(char not in cmd for char in settings.CMD_BLACK_CHARS)
+    for char in settings.CMD_BLACK_CHARS:
+        if char in cmd:
+            return False
+    return True
 
 
 @restricted
@@ -245,30 +242,6 @@ def shortcut_cb(update, context):
     __do_exec(cmd, update, context, is_script=is_script, need_filter_cmd=False)
 
 
-@restricted
-def download(update, context):
-    args = context.args.copy()
-    if not args:
-        update.message.reply_text("Filename must not be empty")
-        return
-    filename = args[0]
-    try:
-        with open(filename, "rb") as document:
-            update.message.reply_document(document)
-    except (FileNotFoundError, IsADirectoryError):
-        update.message.reply_text(f"Can't find `{filename}`.")
-
-
-@restricted
-def upload(update, context):
-    bot = context.bot
-    file_id = update.message.document.file_id
-    file_name = update.message.document.file_name
-    logger.info(f"upload file: {file_id} {file_name}")
-    bot.get_file(file_id).download(os.path.join(settings.UPLOAD_PATH, file_name))
-    update.message.reply_text(f"uploaded `{file_name}` to server.")
-
-
 def main():
     updater = Updater(
         settings.TOKEN, use_context=True, request_kwargs=settings.REQUEST_KWARGS
@@ -279,9 +252,6 @@ def main():
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("help", start))
     dp.add_handler(CallbackQueryHandler(shortcut_cb, run_async=True))
-
-    dp.add_handler(CommandHandler("download", download, pass_args=True, run_async=True))
-    updater.dispatcher.add_handler(MessageHandler(Filters.document, upload))
 
     dp.add_handler(CommandHandler("tasks", do_tasks))
     dp.add_handler(CommandHandler("kill", do_kill, pass_args=True))
@@ -310,6 +280,5 @@ def main():
 
 
 if __name__ == "__main__":
-    os.makedirs(settings.UPLOAD_PATH, exist_ok=True)
     validate_settings()
     main()
